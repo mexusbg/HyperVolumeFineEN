@@ -17,3 +17,4 @@ enable.sh
 
 # Local build dependencies
 .toolchain/
+__pycache__/

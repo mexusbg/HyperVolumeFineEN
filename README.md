@@ -12,6 +12,7 @@ LSPosed module · Root required · libxposed **API 102** · Scope: **System Fram
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Source](https://img.shields.io/badge/source-English_edition-6750A4?style=flat-square)](https://github.com/mexusbg/HyperVolumeFineEN)
+[![Build APK](https://github.com/mexusbg/HyperVolumeFineEN/actions/workflows/ci.yml/badge.svg)](https://github.com/mexusbg/HyperVolumeFineEN/actions/workflows/ci.yml)
 
 ## Features
 
@@ -111,6 +112,20 @@ Output: **`dist/HyperVolumeFineEN-2.10-en.1.apk`**. Override it with `OUT_DIR=/p
 Alternatively, the original local-toolchain layout is supported via `TOOLCHAIN=/path`: `jdk/jdk-*/bin`, `bt/android-*/`, `plat/android-*/android.jar`, and `libxposed-api.jar`.
 
 The script creates a **development signing key** in `.keystore/` and retains it across builds so subsequent local APKs can update each other. `KEYSTORE` can select another compatible keystore; the script currently expects alias `androiddebugkey` and password `android`. Keys and build artifacts are ignored by Git. Configure separate release signing before publishing production APKs.
+
+## Continuous integration
+
+[GitHub Actions](https://github.com/mexusbg/HyperVolumeFineEN/actions/workflows/ci.yml) builds the APK on **Ubuntu and Windows** for pushes to `main`, pull requests, and manual runs through **Actions → Build APK → Run workflow**.
+
+CI installs JDK 17 and Android SDK 36/build tools 36.0.0, downloads libxposed API 102.0.0 with a pinned SHA-256 checksum, and runs the standalone build. It verifies APK signing, alignment, package/version/SDK metadata, English app label, launcher activity/icons, and packaged Xposed metadata. Each successful job uploads the APK and `SHA256SUMS.txt` as an artifact retained for **14 days**. Open a successful run and download its Linux or Windows artifact.
+
+CI artifacts use a **temporary development signing key generated for each job**. Their certificates differ from published releases and other CI runs, so they are intended for build verification and testing. CI does not publish releases or access the retained local release key. No repository secrets are needed, and workflow permissions are limited to reading repository contents. Hardware behavior still requires device testing.
+
+The package verifier can also run locally after building:
+
+```bash
+BUILD_TOOLS=36.0.0 python scripts/verify_apk.py dist/HyperVolumeFineEN-2.10-en.1.apk
+```
 
 ## Command-line configuration
 

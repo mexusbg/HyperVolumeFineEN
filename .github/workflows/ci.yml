@@ -1,0 +1,99 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    defaults:
+      run:
+        shell: bash
+    env:
+      BUILD_TOOLS: '36.0.0'
+      ANDROID_PLATFORM: android-36
+      LIBXPOSED_VERSION: '102.0.0'
+      LIBXPOSED_SHA256: 423484a6e1807e7a423c4b88fcd8176d104318259d91791877fed88fe91479d0
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+          log-accepted-android-sdk-licenses: false
+
+      - name: Download and verify libxposed API
+        run: |
+          mkdir -p .toolchain
+          curl --fail --location --retry 3 \
+            "https://repo.maven.apache.org/maven2/io/github/libxposed/api/${LIBXPOSED_VERSION}/api-${LIBXPOSED_VERSION}.aar" \
+            -o .toolchain/libxposed-api.aar
+          printf '%s  %s\n' "$LIBXPOSED_SHA256" .toolchain/libxposed-api.aar | sha256sum --check --strict
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+          with zipfile.ZipFile('.toolchain/libxposed-api.aar') as aar:
+              Path('.toolchain/libxposed-api.jar').write_bytes(aar.read('classes.jar'))
+          PY
+          echo "LIBXPOSED=$GITHUB_WORKSPACE/.toolchain/libxposed-api.jar" >> "$GITHUB_ENV"
+
+      - name: Check shell syntax and whitespace
+        run: |
+          bash -n build.sh
+          git show --format= --check HEAD
+
+      - name: Build development APK
+        run: bash build.sh
+
+      - name: Verify APK metadata and generate checksum
+        run: python scripts/verify_apk.py dist/*.apk
+
+      - name: Upload APK and checksum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: HyperVolumeFineEN-${{ runner.os }}-${{ github.sha }}
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Write build summary
+        run: |
+          {
+            echo '### APK built and verified'
+            echo
+            echo 'Download the APK and SHA256SUMS.txt from this run’s artifacts.'
+            echo 'This is a temporary development-signed CI build; its certificate differs from published releases and other runs.'
+            echo
+            echo '```text'
+            cat dist/SHA256SUMS.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
