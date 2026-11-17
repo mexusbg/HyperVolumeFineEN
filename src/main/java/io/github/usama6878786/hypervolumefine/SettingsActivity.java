@@ -26,11 +26,11 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Material 3 风格的配置界面。
+ * Material 3 settings screen.
  *
- * 注意：第三方 App 无权向 Settings.System 写自定义键（系统会抛
- * "You cannot keep your settings in the secure settings"），
- * 所以这里的设置只做"内存里改 + 广播给 system_server"，由模块代为落盘。
+ * Third-party apps cannot write custom Settings.System keys (the system throws
+ * "You cannot keep your settings in the secure settings").
+ * Changes are kept in memory and broadcast to system_server for persistence.
  */
 public class SettingsActivity extends Activity {
 
@@ -65,14 +65,14 @@ public class SettingsActivity extends Activity {
     private Toast mToast;
     private String mLastToastText;
     private long mLastToastAt;
-    /** 拖动档位滑条时只在停手后提示一次重启 */
+    /** Show one reboot reminder after slider changes settle. */
     private boolean mRebootToastPending;
     private final Runnable mRebootToast = () -> {
         if (!mRebootToastPending) {
             return;
         }
         mRebootToastPending = false;
-        toast("已保存，重启手机后生效");
+        toast(getString(R.string.saved_reboot));
     };
 
     private M3Switch mSwitch;
@@ -121,22 +121,22 @@ public class SettingsActivity extends Activity {
         addHeader(root);
         addSwitchCard(root);
 
-        addSectionLabel(root, "精确调节");
+        addSectionLabel(root, getString(R.string.section_volume));
         addVolumeCard(root);
-        addToggleCard(root, "音量面板显示数值",
-                "在系统音量面板内显示当前档位数字", KEY_SHOW_NUMBER, DEF_SHOW_NUMBER);
+        addToggleCard(root, getString(R.string.show_number_title),
+                getString(R.string.show_number_summary), KEY_SHOW_NUMBER, DEF_SHOW_NUMBER);
 
-        addSectionLabel(root, "参数调节");
-        addSliderCard(root, "音量档位数", 20, 150, 10, KEY_STEPS,
-                "拖动按 10 档递增，−/+ 微调 1 档。改完需重启手机。");
-        addSliderCard(root, "细调范围", 0, 150, 10, KEY_THRESHOLD,
-                "拖动按 10 档递增，−/+ 微调 1 档。低于该档位按「低音量步进」走。");
-        addSliderCard(root, "低音量步进", 1, 6, 1, KEY_FINE,
-                "低音量区每按一次走几档，1 = 最细。");
-        addSliderCard(root, "高音量步进", 1, 8, 1, KEY_COARSE,
-                "超过细调范围后每次按键走的档数，调大音量更快。");
-        addSliderCard(root, "滑条吸附", 1, 6, 1, KEY_SNAP,
-                "拖动音量滑条时按该档数对齐，1 = 关闭。开启后更容易停在整数档。");
+        addSectionLabel(root, getString(R.string.section_parameters));
+        addSliderCard(root, getString(R.string.steps_title), 20, 150, 10, KEY_STEPS,
+                getString(R.string.steps_summary));
+        addSliderCard(root, getString(R.string.threshold_title), 0, 150, 10, KEY_THRESHOLD,
+                getString(R.string.threshold_summary));
+        addSliderCard(root, getString(R.string.fine_title), 1, 6, 1, KEY_FINE,
+                getString(R.string.fine_summary));
+        addSliderCard(root, getString(R.string.coarse_title), 1, 8, 1, KEY_COARSE,
+                getString(R.string.coarse_summary));
+        addSliderCard(root, getString(R.string.snap_title), 1, 6, 1, KEY_SNAP,
+                getString(R.string.snap_summary));
 
         addInfoCard(root);
         addResetButton(root);
@@ -152,7 +152,7 @@ public class SettingsActivity extends Activity {
         refreshStatus();
     }
 
-    // ------------------------------------------------------------------ 配置读写
+    // ------------------------------------------------------------------ Configuration I/O
 
     private void seedValues() {
         mValues.put(KEY_ENABLED, getInt(KEY_ENABLED, DEF_ENABLED));
@@ -169,7 +169,7 @@ public class SettingsActivity extends Activity {
         return v == null ? 0 : v;
     }
 
-    /** 把内存里的配置广播给 system_server，由模块写进 Settings.System */
+    /** Broadcast the in-memory configuration; system_server writes Settings.System. */
     private void pushConfig() {
         Intent intent = new Intent(ACTION_CONFIG);
         for (Map.Entry<String, Integer> e : mValues.entrySet()) {
@@ -178,11 +178,11 @@ public class SettingsActivity extends Activity {
         try {
             sendBroadcast(intent);
         } catch (Throwable t) {
-            toast("发送失败：" + t.getMessage());
+            toast(getString(R.string.send_failed, t.getMessage()));
         }
     }
 
-    /** 同一句话 2 秒内只弹一次；复用同一个 Toast 实例，避免连续弹出排队 */
+    /** Suppress identical messages for two seconds and cancel the previous toast. */
     private void toast(String text) {
         try {
             long now = SystemClock.elapsedRealtime();
@@ -200,7 +200,7 @@ public class SettingsActivity extends Activity {
         }
     }
 
-    /** 需要重启的改动：防抖 700ms，只在最后一次改动后提示一次 */
+    /** Debounce reboot reminders by 700ms after the last change. */
     private void requestRebootToast() {
         mRebootToastPending = true;
         mHandler.removeCallbacks(mRebootToast);
@@ -215,7 +215,7 @@ public class SettingsActivity extends Activity {
         }
     }
 
-    // ------------------------------------------------------------------ 顶部
+    // ------------------------------------------------------------------ Header
 
     private void addHeader(LinearLayout root) {
         LinearLayout head = new LinearLayout(this);
@@ -224,10 +224,11 @@ public class SettingsActivity extends Activity {
 
         FrameLayout iconBox = new FrameLayout(this);
         iconBox.setBackgroundResource(R.drawable.vf_icon_bg);
+        iconBox.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                getColor(R.color.ic_launcher_background)));
         ImageView icon = new ImageView(this);
-        icon.setImageResource(R.drawable.vf_ic_tune);
-        icon.setColorFilter(mColorOnPrimaryContainer);
-        FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(dp(24), dp(24));
+        icon.setImageResource(R.drawable.ic_launcher_foreground);
+        FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(dp(56), dp(56));
         ilp.gravity = Gravity.CENTER;
         iconBox.addView(icon, ilp);
         head.addView(iconBox, new LinearLayout.LayoutParams(dp(56), dp(56)));
@@ -239,15 +240,15 @@ public class SettingsActivity extends Activity {
         titlesLp.leftMargin = dp(16);
 
         TextView title = new TextView(this);
-        title.setText("Hyper音量细调");
-        title.setTextSize(26);
+        title.setText(getString(R.string.app_name));
+        title.setTextSize(24);
         title.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
         title.setTextColor(mColorOnSurface);
         title.setLetterSpacing(-0.02f);
         titles.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("LSPosed · 让低音量也调得准");
+        sub.setText(getString(R.string.app_tagline));
         sub.setTextSize(13);
         sub.setTextColor(mColorOnSurfaceVariant);
         sub.setPadding(0, dp(3), 0, 0);
@@ -267,7 +268,7 @@ public class SettingsActivity extends Activity {
         root.addView(mStatusChip, lp);
     }
 
-    // ------------------------------------------------------------------ 卡片
+    // ------------------------------------------------------------------ Cards
 
     private void addSwitchCard(LinearLayout root) {
         LinearLayout card = newCard(root);
@@ -279,12 +280,12 @@ public class SettingsActivity extends Activity {
         LinearLayout texts = new LinearLayout(this);
         texts.setOrientation(LinearLayout.VERTICAL);
         TextView title = new TextView(this);
-        title.setText("启用 Hyper音量细调");
+        title.setText(getString(R.string.enable_title));
         title.setTextSize(16);
         title.setTextColor(mColorOnSurface);
         texts.addView(title);
         TextView desc = new TextView(this);
-        desc.setText("关闭后恢复系统原生 29 档");
+        desc.setText(getString(R.string.enable_summary));
         desc.setTextSize(12);
         desc.setTextColor(mColorOnSurfaceVariant);
         desc.setPadding(0, dp(4), 0, 0);
@@ -292,6 +293,7 @@ public class SettingsActivity extends Activity {
         row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         mSwitch = new M3Switch(this);
+        mSwitch.setContentDescription(getString(R.string.enable_title));
         mSwitch.setChecked(value(KEY_ENABLED) != 0, false);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -302,7 +304,7 @@ public class SettingsActivity extends Activity {
             mSwitch.toggle();
             boolean on = mSwitch.isChecked();
             setValue(KEY_ENABLED, on ? 1 : 0, false);
-            toast(on ? "已启用，重启手机后档位生效" : "已关闭，重启手机后恢复 29 档");
+            toast(on ? getString(R.string.enabled_reboot) : getString(R.string.disabled_reboot));
         };
         row.setOnClickListener(toggle);
         mSwitch.setOnClickListener(toggle);
@@ -310,7 +312,7 @@ public class SettingsActivity extends Activity {
         card.addView(row);
     }
 
-    /** 一个带开关的卡片 */
+    /** A card with a toggle switch. */
     private void addToggleCard(LinearLayout root, String title, String desc, String key, int def) {
         LinearLayout card = newCard(root);
 
@@ -334,6 +336,7 @@ public class SettingsActivity extends Activity {
         row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         M3Switch sw = new M3Switch(this);
+        sw.setContentDescription(title);
         sw.setChecked(value(key) != 0, false);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -350,7 +353,7 @@ public class SettingsActivity extends Activity {
         card.addView(row);
     }
 
-    /** 精确调节：行为与音量键一致（低音量区按配置走 1~N 档） */
+    /** Use the volume-key path, including configured fine steps at low volume. */
     private void addVolumeCard(LinearLayout root) {
         LinearLayout card = newCard(root);
 
@@ -367,6 +370,7 @@ public class SettingsActivity extends Activity {
         blp.topMargin = dp(14);
 
         TextView minus = roundButton("−");
+        minus.setContentDescription(getString(R.string.decrease_volume));
         minus.setOnClickListener(v -> adjust(-1));
         btns.addView(minus, new LinearLayout.LayoutParams(0, dp(44), 1f));
 
@@ -374,6 +378,7 @@ public class SettingsActivity extends Activity {
         btns.addView(spacer, new LinearLayout.LayoutParams(dp(12), dp(1)));
 
         TextView plus = roundButton("+");
+        plus.setContentDescription(getString(R.string.increase_volume));
         plus.setOnClickListener(v -> adjust(1));
         btns.addView(plus, new LinearLayout.LayoutParams(0, dp(44), 1f));
 
@@ -407,15 +412,19 @@ public class SettingsActivity extends Activity {
         LinearLayout card = newCard(root);
 
         LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
+        boolean stackControls = getResources().getConfiguration().screenWidthDp < 360
+                || getResources().getConfiguration().fontScale > 1.15f;
+        header.setOrientation(stackControls ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView label = new TextView(this);
         label.setText(title);
         label.setTextSize(15);
         label.setTextColor(mColorOnSurface);
-        header.addView(label, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        header.addView(label, stackControls
+                ? new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT)
+                : new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         final TextView chip = new TextView(this);
         chip.setTextSize(12);
@@ -427,6 +436,8 @@ public class SettingsActivity extends Activity {
 
         TextView minus = stepButton("−");
         TextView plus = stepButton("+");
+        minus.setContentDescription(getString(R.string.decrease_setting, title));
+        plus.setContentDescription(getString(R.string.increase_setting, title));
         LinearLayout stepper = new LinearLayout(this);
         stepper.setOrientation(LinearLayout.HORIZONTAL);
         stepper.setGravity(Gravity.CENTER_VERTICAL);
@@ -437,12 +448,18 @@ public class SettingsActivity extends Activity {
         chipLp.rightMargin = dp(6);
         stepper.addView(chip, chipLp);
         stepper.addView(plus);
-        header.addView(stepper);
+        LinearLayout.LayoutParams stepperLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        if (stackControls) {
+            stepperLp.topMargin = dp(10);
+        }
+        header.addView(stepper, stepperLp);
 
         card.addView(header);
 
-        // 滑条按 grid 分段：拖动一格正好 grid 个数值
+        // Divide the slider into grid-sized increments.
         SeekBar bar = new SeekBar(this);
+        bar.setContentDescription(title);
         bar.setMax((max - min) / grid);
         bar.setProgress(clamp(toProgress(value(key), min, max, grid), 0, (max - min) / grid));
         bar.setProgressDrawable(getDrawable(R.drawable.vf_slider_track));
@@ -534,12 +551,12 @@ public class SettingsActivity extends Activity {
     private String formatValue(String key, int v) {
         switch (key) {
             case KEY_THRESHOLD:
-                return v + " 档";
+                return getResources().getQuantityString(R.plurals.level_count, v, v);
             case KEY_FINE:
             case KEY_COARSE:
-                return v + " 档/次";
+                return getResources().getQuantityString(R.plurals.levels_per_press, v, v);
             case KEY_SNAP:
-                return v <= 1 ? "关闭" : v + " 档";
+                return v <= 1 ? getString(R.string.off) : getResources().getQuantityString(R.plurals.level_count, v, v);
             default:
                 return String.valueOf(v);
         }
@@ -563,7 +580,7 @@ public class SettingsActivity extends Activity {
         LinearLayout card = newCard(root);
 
         TextView title = new TextView(this);
-        title.setText("说明");
+        title.setText(getString(R.string.info_title));
         title.setTextSize(15);
         title.setTextColor(mColorOnSurface);
         card.addView(title);
@@ -573,10 +590,7 @@ public class SettingsActivity extends Activity {
         body.setTextColor(mColorOnSurfaceVariant);
         body.setLineSpacing(dp(4), 1f);
         body.setPadding(0, dp(10), 0, 0);
-        body.setText("作用于音乐音量（streamType " + getString(KEY_STREAMS, "3")
-                + "），铃声 / 闹钟 / 通知保持系统原生档位。\n"
-                + "参数改动即时生效；「音量档位数」与开关状态需重启手机。\n"
-                + "停用模块前请先关闭上面的开关，否则开机音量会被截断成最大。");
+        body.setText(getString(R.string.info_body, getString(KEY_STREAMS, "3")));
         card.addView(body);
 
         TextView adb = new TextView(this);
@@ -586,8 +600,7 @@ public class SettingsActivity extends Activity {
         adb.setLineSpacing(dp(4), 1f);
         adb.setPadding(dp(12), dp(10), dp(12), dp(10));
         adb.setBackgroundResource(R.drawable.vf_chip);
-        adb.setText("adb shell settings put system volume_fine_fine 2\n"
-                + "adb shell settings put system volume_fine_snap 2");
+        adb.setText(R.string.adb_examples);
         LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         alp.topMargin = dp(12);
@@ -596,7 +609,7 @@ public class SettingsActivity extends Activity {
 
     private void addResetButton(LinearLayout root) {
         TextView btn = new TextView(this);
-        btn.setText("恢复默认设置");
+        btn.setText(getString(R.string.reset));
         btn.setTextSize(14);
         btn.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         btn.setTextColor(getColor(R.color.vf_on_secondary_container));
@@ -612,7 +625,7 @@ public class SettingsActivity extends Activity {
             mValues.put(KEY_SNAP, DEF_SNAP);
             mValues.put(KEY_SHOW_NUMBER, DEF_SHOW_NUMBER);
             pushConfig();
-            toast("已恢复默认，重启手机后完全生效");
+            toast(getString(R.string.reset_saved));
             recreate();
         });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -628,7 +641,7 @@ public class SettingsActivity extends Activity {
         footer.setTextSize(11);
         footer.setTextColor(mColorOnSurfaceVariant);
         footer.setGravity(Gravity.CENTER);
-        footer.setText("v2.10 · API 102 · 作用域 system + systemui");
+        footer.setText(getString(R.string.footer));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(20);
@@ -647,7 +660,7 @@ public class SettingsActivity extends Activity {
         return card;
     }
 
-    // ------------------------------------------------------------------ 状态
+    // ------------------------------------------------------------------ Status
 
     private int currentAppliedSteps() {
         AudioManager am = getSystemService(AudioManager.class);
@@ -658,9 +671,9 @@ public class SettingsActivity extends Activity {
         AudioManager am = getSystemService(AudioManager.class);
         int cur = am == null ? 0 : am.getStreamVolume(AudioManager.STREAM_MUSIC);
         int max = am == null ? 0 : am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-        mStatusChip.setText("当前 " + cur + " / " + max + " 档");
+        mStatusChip.setText(getString(R.string.status_level, cur, max));
         if (mVolumeValue != null) {
-            mVolumeValue.setText("当前音乐音量 " + cur + " / " + max);
+            mVolumeValue.setText(getString(R.string.media_level, cur, max));
         }
         if (mSwitch != null) {
             mSwitch.setChecked(value(KEY_ENABLED) != 0, false);
@@ -675,15 +688,15 @@ public class SettingsActivity extends Activity {
         int running = currentAppliedSteps();
         int wanted = value(KEY_STEPS);
         if (running > 0 && wanted != running) {
-            mStepsHint.setText("当前生效 " + running + " 档，改成 " + wanted + " 档需重启手机。");
+            mStepsHint.setText(getString(R.string.steps_pending, running, wanted));
             mStepsHint.setTextColor(mColorPrimary);
         } else {
-            mStepsHint.setText("拖动按 10 档递增，−/+ 微调 1 档。改完需重启手机。");
+            mStepsHint.setText(getString(R.string.steps_summary));
             mStepsHint.setTextColor(mColorOnSurfaceVariant);
         }
     }
 
-    // ------------------------------------------------------------------ 工具
+    // ------------------------------------------------------------------ Utilities
 
     private int dp(int v) {
         return Math.round(mDensity * v);

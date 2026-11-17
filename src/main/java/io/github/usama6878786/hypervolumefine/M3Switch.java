@@ -10,8 +10,8 @@ import android.view.View;
 import android.view.animation.PathInterpolator;
 
 /**
- * Material 3 风格的开关（Switch）。
- * 未选中：16dp 空心拇指 + 32dp 高、2dp 描边的轨道；选中：24dp 拇指 + primary 实心轨道。
+ * Material 3 switch.
+ * Off: 16dp thumb, 32dp track with a 2dp outline. On: 24dp thumb and solid primary track.
  */
 public class M3Switch extends View {
 
@@ -92,7 +92,7 @@ public class M3Switch extends View {
         mListener = l;
     }
 
-    /** 用于控件自身的点击事件 */
+    /** Toggle from the control click handler. */
     public void toggle() {
         setChecked(!mChecked, true);
         if (mListener != null) {

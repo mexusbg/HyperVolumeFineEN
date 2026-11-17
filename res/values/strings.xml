@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hyper Volume Fine</string>
+    <string name="app_tagline">LSPosed · Precise volume control</string>
+    <string name="section_volume">Precise adjustment</string>
+    <string name="show_number_title">Show volume level</string>
+    <string name="show_number_summary">Display the current level inside the system volume panel.</string>
+    <string name="section_parameters">Volume settings</string>
+    <string name="steps_title">Volume levels</string>
+    <string name="steps_summary">Drag in steps of 10; use −/+ for single levels. Reboot to apply.</string>
+    <string name="threshold_title">Fine adjustment range</string>
+    <string name="threshold_summary">Drag in steps of 10; use −/+ for single levels. Below this level, volume keys use the low-volume step.</string>
+    <string name="fine_title">Low-volume step</string>
+    <string name="fine_summary">Levels per key press in the fine adjustment range. 1 gives the finest control.</string>
+    <string name="coarse_title">High-volume step</string>
+    <string name="coarse_summary">Levels per key press above the fine adjustment range, for faster volume changes.</string>
+    <string name="snap_title">Slider snapping</string>
+    <string name="snap_summary">Snap the volume slider to intervals of this many levels. 1 disables snapping.</string>
+    <string name="saved_reboot">Saved. Reboot your phone to apply.</string>
+    <string name="send_failed">Could not send settings: %1$s</string>
+    <string name="enable_title">Enable Hyper Volume Fine</string>
+    <string name="enable_summary">Turn off to restore the stock 29 levels after reboot.</string>
+    <string name="enabled_reboot">Enabled. Reboot to apply the volume levels.</string>
+    <string name="disabled_reboot">Disabled. Reboot to restore the stock 29 levels.</string>
+    <string name="off">Off</string>
+    <string name="info_title">About these settings</string>
+    <string name="info_body">Controls media volume (stream types: %1$s). Other streams keep their stock levels.\nStep sizes and snapping apply immediately; changing the level count or enabling/disabling the module requires a reboot.\nBefore disabling the module in LSPosed, turn off the switch above and reboot to restore volume settings first.</string>
+    <string name="adb_examples" translatable="false">adb shell settings put system volume_fine_fine 2\nadb shell settings put system volume_fine_snap 2</string>
+    <string name="reset">Restore defaults</string>
+    <string name="reset_saved">Defaults restored. Reboot to apply all changes.</string>
+    <string name="footer">v2.10-en.1 · API 102 · Scope: system + SystemUI</string>
+    <string name="status_level">Volume: %1$d / %2$d</string>
+    <string name="media_level">Media volume: %1$d / %2$d</string>
+    <string name="steps_pending">Currently %1$d levels. Reboot to apply %2$d levels.</string>
+    <string name="decrease_volume">Decrease media volume</string>
+    <string name="increase_volume">Increase media volume</string>
+    <string name="decrease_setting">Decrease %1$s</string>
+    <string name="increase_setting">Increase %1$s</string>
+    <plurals name="level_count">
+        <item quantity="one">%d level</item>
+        <item quantity="other">%d levels</item>
+    </plurals>
+    <plurals name="levels_per_press">
+        <item quantity="one">%d / press</item>
+        <item quantity="other">%d / press</item>
+    </plurals>
+</resources>

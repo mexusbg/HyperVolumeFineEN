@@ -25,22 +25,22 @@ import java.util.List;
 import io.github.libxposed.api.XposedInterface;
 
 /**
- * 音量数字 —— 直接画进系统音量面板自己的窗口里（SystemUI 进程）。
+ * Render a volume number inside the system volume-panel window (SystemUI process).
  *
- * hook {@code WindowManagerImpl / WindowManagerGlobal.addView}，识别出音量面板窗口后，
- * 把数字 TextView 加进该窗口的 content 容器并置于最上层。数字是纯文字（无背景板），
- * 放在面板内部、三点图标下方，宽度与滑条一致。
+ * Hook {@code WindowManagerImpl / WindowManagerGlobal.addView} to identify the volume window,
+ * then add a foreground TextView to its content container. The number has no background
+ * and sits below the three-dot icon, aligned to the slider width.
  *
- * 位置策略：面板内部是 MIUI 自绘的 {@code MiuiVolumeSeekBar}，但每次弹出面板它的 window 坐标
- * 会累积右移十几像素（870 → 882 → 898 …），逐帧跟随会让数字越点越偏。所以：
- *   1) 面板动画稳定后标定一次，把相对屏幕右边缘/顶部的距离与尺寸换算成 dp 缓存；
- *   2) 之后每次弹面板直接用缓存坐标摆放，不再重新测量；
- *   3) 出场随面板淡入/淡出，并与滑入滑出动画错开，避免错位。
+ * Positioning: the window coordinates of the custom MIUI {@code MiuiVolumeSeekBar}
+ * drift right on repeated shows (870 -> 882 -> 898). Avoid following that drift:
+ *   1) Calibrate once after animation settles; cache size and right/top offsets in dp.
+ *   2) Reuse cached coordinates on subsequent shows.
+ *   3) Fade with the panel while avoiding interference with its slide animations.
  */
 final class PanelNumber {
 
     private static final String TAG = "VolumeFine";
-    /** 音量面板窗口类型：AOSP 是 2014，这台 HyperOS 上实测是 2020 */
+    /** Volume-panel window types: 2014 on AOSP, 2020 on the tested HyperOS build. */
     private static final int[] VOLUME_WINDOW_TYPES = {2014, 2020};
 
     private static boolean sInstalled;
@@ -51,16 +51,16 @@ final class PanelNumber {
     private TextView mNumber;
     private ViewGroup mHost;
     private View mPanelDecor;
-    private View mSeekBarRef;      // 上次找到的滑条，缓存以省掉每轮遍历视图树
+    private View mSeekBarRef;      // Cache the slider to avoid traversing the view tree on every tick.
     private AudioManager mAudioManager;
     private boolean mPolling;
     private boolean mFadedOut;
     private boolean mStableThisShow;
     private boolean mTreeDumped;
-    /** 面板关闭后无窗口可跟时，连续空转的轮数，达到阈值即停止循环 */
+    /** Stop polling after this many consecutive ticks without a visible host. */
     private int mIdleTicks;
 
-    // 位置
+    // Position
     private Rect mPrevBounds;
     private Rect mAppliedBounds;
     private int mCalRightDp = -1;
@@ -68,25 +68,25 @@ final class PanelNumber {
     private int mCalWidthDp = -1;
     private int mCalHeightDp = -1;
 
-    // 配色
+    // Colors
     private Rect mTextBarRect;
     private int mTextTop;
     private int mTextHeight;
     private boolean mDarkText;
-    private int mStreamMax = -1;   // 缓存的音乐流最大档位，避免每轮 IPC 查询
-    private int mShownVolume = Integer.MIN_VALUE;   // 当前已显示的档位，避免重复 setText
-    private boolean mSwitchOn = true;               // enabled && showNumber 缓存
-    private long mSwitchAt;                         // 上次读开关的时间
+    private int mStreamMax = -1;   // Cache the media maximum to avoid an IPC on every tick.
+    private int mShownVolume = Integer.MIN_VALUE;   // Last displayed level; avoid redundant setText calls.
+    private boolean mSwitchOn = true;               // Cached enabled && showNumber.
+    private long mSwitchAt;                         // Last switch refresh time.
 
     PanelNumber(VolumeFineModule module) {
         m = module;
     }
 
-    // ------------------------------------------------------------------ 安装
+    // ------------------------------------------------------------------ Installation
 
     void install(ClassLoader cl) throws Throwable {
         if (sInstalled) {
-            return;   // onPackageLoaded 可能回调多次，避免重复挂载出现两个数字
+            return;   // onPackageLoaded may repeat; prevent duplicate number views.
         }
         sInstalled = true;
 
@@ -135,7 +135,7 @@ final class PanelNumber {
         m.log(4, TAG, "[sysui] installed, addView hooks=" + hooked);
     }
 
-    /** 把“面板内可显示”标记写进 Settings.System，带重试与多路 context 兜底 */
+    /** Identify a volume panel by window type or title. */
     private static boolean isVolumePanel(WindowManager.LayoutParams lp) {
         for (int type : VOLUME_WINDOW_TYPES) {
             if (lp.type == type) {
@@ -146,7 +146,7 @@ final class PanelNumber {
         return title != null && title.toString().contains("VolumePanel");
     }
 
-    // ------------------------------------------------------------------ 挂载
+    // ------------------------------------------------------------------ Attachment
 
     private void onVolumePanelAdded(View decor) {
         try {
@@ -177,16 +177,16 @@ final class PanelNumber {
             mStableThisShow = false;
             mDarkText = false;
             mTextBarRect = null;
-            mShownVolume = Integer.MIN_VALUE;   // 新面板：强制重写一次文字
-            // 先彻底隐身再挂上去：anchor 位置只是临时占位，若以可见状态挂上会在错位置闪一下
+            mShownVolume = Integer.MIN_VALUE;   // Force a text refresh for a new panel.
+            // Attach invisibly: the initial anchor is temporary and must not flash onscreen.
             mNumber.animate().cancel();
             mNumber.setAlpha(0f);
 
             host.addView(mNumber, anchorParams(decor.getContext()));
-            mNumber.bringToFront();     // 只在这里置顶一次，之后不再重复调用（它会 remove+add 触发重绘）
+            mNumber.bringToFront();     // Raise once here; repeated remove/add operations would trigger redraws.
             refreshText();
 
-            // 已标定过：直接用缓存坐标摆好，等滑条可见后再淡入
+            // Use calibrated coordinates immediately; fade in once the slider is visible.
             Rect cached = cachedBarRect(decor.getContext());
             if (cached != null) {
                 mAppliedBounds = cached;
@@ -201,7 +201,7 @@ final class PanelNumber {
                                 applyExactPosition(decor);
                             } catch (Throwable ignored) {
                             } finally {
-                                // 一次性：定位到后自移除，避免监听器在每次弹出面板时无限累积
+                                // Remove this one-shot listener to avoid accumulating callbacks on repeated shows.
                                 try {
                                     decor.getViewTreeObserver().removeOnGlobalLayoutListener(this);
                                 } catch (Throwable ignored) {
@@ -234,7 +234,7 @@ final class PanelNumber {
     private void startPolling(View decor) {
         mPanelDecor = decor;
         if (mPolling) {
-            return;   // 已有循环，它会读 mPanelDecor，自动跟随新窗口
+            return;   // The existing loop reads mPanelDecor and follows the new window.
         }
         mPolling = true;
         mHandler.postDelayed(new Runnable() {
@@ -244,15 +244,15 @@ final class PanelNumber {
                     mPolling = false;
                     return;
                 }
-                // 面板已关闭、宿主不再显示时：先让数字立即淡出（与滑条同步消失），
-                // 连续空转若干轮后再停止循环，避免后台空耗
+                // If the host is no longer visible, fade the number with the slider,
+                // then stop after several idle ticks to avoid background work.
                 boolean hostAlive = mHost != null && mHost.isShown() && mHost.isAttachedToWindow();
                 if (!hostAlive) {
                     if (mStableThisShow && !mFadedOut) {
-                        fadeOut();               // 立即淡出，不等延迟窗口
+                        fadeOut();               // Fade immediately without waiting for the idle timeout.
                     }
                     mIdleTicks++;
-                    if (mIdleTicks >= 10) {      // 约 600ms 后确认面板确实关了
+                    if (mIdleTicks >= 10) {      // Confirm closure after roughly 600ms.
                         mPolling = false;
                         mIdleTicks = 0;
                         return;
@@ -262,7 +262,7 @@ final class PanelNumber {
                 }
                 mIdleTicks = 0;
 
-                // 开关关掉时不显示数字（原来这两个开关只控制悬浮窗，现在数字在面板里，判断挪到这里）
+                // The enabled/show-number switches control the in-panel number here.
                 if (!numberEnabled()) {
                     if (!mFadedOut) {
                         fadeOut();
@@ -272,7 +272,7 @@ final class PanelNumber {
                 }
 
                 if (mNumber.getParent() == null) {
-                    // 面板窗口被复用、内容重建会把我们的 View 摘掉，这里自动补挂
+                    // Reattach if a reused window rebuilds its contents and removes our view.
                     try {
                         mNumber.setAlpha(0f);
                         mAppliedBounds = null;
@@ -288,8 +288,8 @@ final class PanelNumber {
                 try {
                     refreshText();
 
-                    // 定位：标定完成后不再重新测量位置（用缓存），但**始终**检查滑条是否还可见，
-                    // 用它的可见性来驱动淡出 —— 否则缓存矩形永远非空，数字会滞后于滑条消失。
+                    // After calibration, use cached bounds but always check slider visibility;
+                    // cached bounds alone never become null and would delay fading after the slider disappears.
                     Rect now = null;
                     boolean seekbarVisible = mPanelDecor != null && hasVisibleSeekBar(mPanelDecor);
                     if (seekbarVisible) {
@@ -302,7 +302,7 @@ final class PanelNumber {
 
                     if (now == null) {
                         if (mAppliedBounds != null && mStableThisShow) {
-                            fadeOut();          // 滑条不可见 => 面板在退出，立即淡出
+                            fadeOut();          // The slider is hidden: fade out with the panel.
                         }
                     } else if (mPrevBounds != null && mPrevBounds.equals(now)) {
                         mStableThisShow = true;
@@ -313,12 +313,12 @@ final class PanelNumber {
                         fadeIn();
                     } else {
                         mPrevBounds = now;
-                        // 已标定过：位置一开始就摆好了，滑条一出现就可以亮，不必等两轮稳定
+                        // Cached placement is ready; show as soon as the slider appears.
                         if (mAppliedBounds != null) {
                             mStableThisShow = true;
                             fadeIn();
                         } else if (mStableThisShow) {
-                            fadeOut();          // 稳定过又开始移动 => 退出动画
+                            fadeOut();          // Movement after stability indicates the exit animation.
                         }
                     }
                 } catch (Throwable ignored) {
@@ -328,7 +328,7 @@ final class PanelNumber {
         }, 60);
     }
 
-    /** 缓存读取“启用”与“显示数值”两个开关，1 秒刷新一次，避免每轮读设置 */
+    /** Cache enabled/show-number switches for one second to reduce settings reads. */
     private boolean numberEnabled() {
         long now = SystemClock.elapsedRealtime();
         if (now - mSwitchAt > 1000L) {
@@ -348,7 +348,7 @@ final class PanelNumber {
         return mSwitchOn;
     }
 
-    /** 只刷新数字文字与配色，不触碰视图树；缓存 AudioManager 避免每轮 getSystemService */
+    /** Refresh text/color only; cache AudioManager to avoid repeated service lookups. */
     private void refreshText() {
         try {
             Context ctx = mNumber.getContext();
@@ -359,20 +359,20 @@ final class PanelNumber {
                 return;
             }
             int vol = mAudioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
-            // 值没变就不 setText：TextView 每次赋值都会走 measure/layout + invalidate，
-            // 每 60ms 无条件刷新会造成持续的无效重绘（观感上的“闪”）
+            // Only setText when the volume changes; each call triggers measure/layout and invalidation.
+            // Unconditional 60ms updates would cause redundant redraws and visible flicker.
             if (vol != mShownVolume || mShownVolume == Integer.MIN_VALUE) {
                 mShownVolume = vol;
                 mNumber.setText(String.valueOf(vol));
             }
-            updateTextColor(ctx, vol);   // 复用刚读到的音量，避免再发一次 IPC
+            updateTextColor(ctx, vol);   // Reuse the volume already read to avoid another IPC.
         } catch (Throwable ignored) {
         }
     }
 
-    // ------------------------------------------------------------------ 定位
+    // ------------------------------------------------------------------ Positioning
 
-    /** 用缓存的标定值还原滑条矩形；未标定时返回 null */
+    /** Restore slider bounds from calibration; return null before calibration. */
     private Rect cachedBarRect(Context ctx) {
         if (mCalWidthDp <= 0 || mCalHeightDp <= 0) {
             return null;
@@ -383,7 +383,7 @@ final class PanelNumber {
         return new Rect(left, top, left + dp(ctx, mCalWidthDp), top + dp(ctx, mCalHeightDp));
     }
 
-    /** 找滑条并贴上去；找不到就保持 dp 锚点 */
+    /** Align to the slider when available; otherwise keep the dp anchor. */
     private void applyExactPosition(View decor) {
         if (mNumber == null || mHost == null) {
             return;
@@ -406,7 +406,7 @@ final class PanelNumber {
         }
     }
 
-    /** 数字画在面板内部：横向与滑条对齐，纵向放在面板顶部（三点图标下方） */
+    /** Align the number to the slider inside the panel, below the three-dot icon. */
     private void applyPosition(Rect measured) {
         try {
             if (mNumber == null || mHost == null || measured == null) {
@@ -414,7 +414,7 @@ final class PanelNumber {
             }
             if (measured.left <= 0 || measured.top <= 0
                     || measured.width() <= 0 || measured.height() <= 0) {
-                return;   // 布局还没稳定，保持原位
+                return;   // Keep the current position until layout settles.
             }
             Context ctx = mNumber.getContext();
             float density = ctx.getResources().getDisplayMetrics().density;
@@ -437,7 +437,7 @@ final class PanelNumber {
             }
 
             int h = dp(ctx, 22);
-            int top = bar.top + dp(ctx, 40);          // 让开面板顶部的三点图标
+            int top = bar.top + dp(ctx, 40);          // Leave space for the three-dot icon.
             top = Math.min(top, bar.bottom - h - dp(ctx, 8));
 
             int[] hostLoc = new int[2];
@@ -470,9 +470,9 @@ final class PanelNumber {
         }
     }
 
-    // ------------------------------------------------------------------ 配色
+    // ------------------------------------------------------------------ Colors
 
-    /** 数字压到白色填充上时用深色、在玻璃底色上用白色；带迟滞，避免填充扫过文字时黑白乱闪 */
+    /** Use dark text over white fill and white over glass; hysteresis prevents color flicker. */
     private void updateTextColor(Context ctx, int vol) {
         try {
             if (mNumber == null || mTextBarRect == null || mTextHeight <= 0) {
@@ -496,11 +496,11 @@ final class PanelNumber {
 
             boolean dark;
             if (fillTop <= textBottom - dp(ctx, 1)) {
-                dark = true;                        // 填充已盖到文字
+                dark = true;                        // Fill has reached the text.
             } else if (fillTop >= textBottom + dp(ctx, 6)) {
-                dark = false;                       // 填充退到文字下方
+                dark = false;                       // Fill is below the text.
             } else {
-                dark = mDarkText;                   // 迟滞区保持
+                dark = mDarkText;                   // Keep the previous color within the hysteresis band.
             }
             if (dark != mDarkText) {
                 mDarkText = dark;
@@ -521,11 +521,11 @@ final class PanelNumber {
         }
     }
 
-    // ------------------------------------------------------------------ 视图查找
+    // ------------------------------------------------------------------ View lookup
 
     /**
-     * 取当前可见的滑条。优先复用上一次找到的 View 引用 —— 只做 isShown/边界校验，
-     * 失效了才重新遍历视图树。轮询每 60ms 一次，这样可以省掉绝大部分遍历。
+     * Reuse the last visible slider after visibility/bounds checks;
+     * only traverse the tree when invalid. This avoids most traversal at the 60ms polling rate.
      */
     private View activeSeekBar(View decor) {
         View cached = mSeekBarRef;
@@ -567,7 +567,7 @@ final class PanelNumber {
         return new Rect(loc[0], loc[1], loc[0] + bar.getWidth(), loc[1] + bar.getHeight());
     }
 
-    /** 找当前真正可见的滑条：尺寸有效、已布局、完整落在屏幕内、取面积最大的那个 */
+    /** Choose the largest visible, laid-out slider fully contained within the screen. */
     private View findActiveSeekBar(View v, String simpleName) {
         if (v == null) {
             return null;
@@ -598,7 +598,7 @@ final class PanelNumber {
         return best;
     }
 
-    /** 判断滑条是否仍可见（用于驱动淡出，比 findSliderBounds 轻量） */
+    /** Check slider visibility to drive fade-out without allocating bounds. */
     private boolean hasVisibleSeekBar(View decor) {
         if (decor == null) {
             return false;
@@ -621,7 +621,7 @@ final class PanelNumber {
         }
     }
 
-    /** 打印面板窗口里的视图树（排查用） */
+    /** Dump the panel view tree for diagnostics. */
     private void dumpTree(View v, int depth) {
         if (v == null || depth > 10) {
             return;
@@ -647,15 +647,15 @@ final class PanelNumber {
         }
     }
 
-    // ------------------------------------------------------------------ 其它
+    // ------------------------------------------------------------------ Other helpers
 
     private void fadeIn() {
         if (mNumber == null) {
             return;
         }
         mFadedOut = false;
-        // 不再每轮 bringToFront()：它的实现是 remove + add，会触发重绘并从最上层重新入栈，
-        // 表现为数字“闪一下”。置顶只在挂载时做一次。
+        // Do not call bringToFront on every tick: it removes/readds the view and redraws it,
+        // which causes flicker. Raise the view only when attaching.
         if (mNumber.getAlpha() < 1f) {
             mNumber.animate().cancel();
             mNumber.animate().alpha(1f).setDuration(120).start();

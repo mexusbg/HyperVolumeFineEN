@@ -1,28 +1,33 @@
 #!/usr/bin/env bash
-# 构建 Hyper音量细调 (LSPosed 模块) APK —— 不依赖 Gradle，直接 aapt2 + javac + d8 + apksigner
+# Build Hyper Volume Fine (LSPosed module) with aapt2 + javac + d8 + apksigner.
 #
-# 依赖（二选一）：
-#   1) 本地工具链目录（默认 ../build，可用 TOOLCHAIN=/path 覆盖），需包含：
+# Dependencies (choose either setup):
+#   1) Local toolchain (default ../build; override with TOOLCHAIN=/path):
 #        jdk/jdk-*/bin/{java,javac,keytool}
-#        bt/android-*/{aapt2,zipalign}、bt/android-*/lib/{d8.jar,apksigner.jar}
-#        plat/android-*/android.jar、libxposed-api.jar
-#   2) 已安装 Android SDK + JDK17，通过环境变量指定：
+#        bt/android-*/{aapt2,zipalign}, bt/android-*/lib/{d8.jar,apksigner.jar}
+#        plat/android-*/android.jar, libxposed-api.jar
+#   2) Installed Android SDK + JDK 17, configured through environment variables:
 #        ANDROID_HOME=/path/to/sdk  BUILD_TOOLS=36.0.0  JAVA_HOME=/path/to/jdk17
-#        （libxposed-api.jar 仍需自行放到 TOOLCHAIN 目录下）
+#        Place libxposed-api.jar in TOOLCHAIN or set LIBXPOSED=/path/to/classes.jar.
+#        ANDROID_PLATFORM defaults to android-36. Python 3 is also required.
 #
-# 用法：bash build.sh          产物输出到 ../dist/VolumeFine-<版本>.apk
+# Usage: bash build.sh          Output: dist/HyperVolumeFineEN-<version>.apk
 #      OUT_DIR=/tmp/out bash build.sh
 set -e
 
-PROJ="$(cd "$(dirname "$0")" && { pwd -W 2>/dev/null || pwd; })"   # Git Bash 下取 D:/... 形式，避免 find 输出反斜杠路径
+PROJ="$(cd "$(dirname "$0")" && { pwd -W 2>/dev/null || pwd; })"   # Use native paths in Git Bash.
 TOOLCHAIN="${TOOLCHAIN:-$PROJ/../build}"
-OUT="${OUT_DIR:-$PROJ/../dist}"
-VER_NAME="2.10"
-VER_CODE="21"
+OUT="${OUT_DIR:-$PROJ/dist}"
+# Read version metadata from the manifest to avoid divergent APK versions.
+VER_NAME="$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' "$PROJ/AndroidManifest.xml")"
+VER_CODE="$(sed -n 's/.*android:versionCode="\([^"]*\)".*/\1/p' "$PROJ/AndroidManifest.xml")"
+ANDROID_PLATFORM="${ANDROID_PLATFORM:-android-36}"
+CLASSPATH_SEP=:
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) CLASSPATH_SEP=';' ;; esac
 
 pick() { for c in "$@"; do [ -x "$c" ] && { echo "$c"; return 0; }; done; return 1; }
 
-# ---- 定位 JDK ----
+# ---- Locate the JDK ----
 if [ -n "$JAVA_HOME" ]; then
   JAVA="$JAVA_HOME/bin/java"; JAVAC="$JAVA_HOME/bin/javac"; KEYTOOL="$JAVA_HOME/bin/keytool"
 else
@@ -31,25 +36,25 @@ else
   KEYTOOL="$(pick "$TOOLCHAIN"/jdk/*/bin/keytool "$(command -v keytool)")"
 fi
 
-# ---- 定位 Android 构建工具 ----
+# ---- Locate Android build tools ----
 if [ -n "$ANDROID_HOME" ] && [ -n "$BUILD_TOOLS" ]; then
   BT="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
   AAPT2="$(pick "$BT/aapt2.exe" "$BT/aapt2")"
   ZIPALIGN="$(pick "$BT/zipalign.exe" "$BT/zipalign")"
   APKSIGNER_JAR="$BT/lib/apksigner.jar"; D8_JAR="$BT/lib/d8.jar"
-  ANDROID_JAR="$(ls -1 "$ANDROID_HOME"/platforms/android-*/android.jar | sort -V | tail -1)"
+  ANDROID_JAR="${ANDROID_JAR:-$ANDROID_HOME/platforms/$ANDROID_PLATFORM/android.jar}"
 else
   BT="$(echo "$TOOLCHAIN"/bt/android-* | awk '{print $1}')"
   AAPT2="$(pick "$BT/aapt2.exe" "$BT/aapt2")"
   ZIPALIGN="$(pick "$BT/zipalign.exe" "$BT/zipalign")"
   D8_JAR="$BT/lib/d8.jar"
   APKSIGNER_JAR="$BT/lib/apksigner.jar"
-  ANDROID_JAR="$(echo "$TOOLCHAIN"/plat/android-*/android.jar | awk '{print $1}')"
+  ANDROID_JAR="${ANDROID_JAR:-$(echo "$TOOLCHAIN"/plat/android-*/android.jar | awk '{print $1}')}"
 fi
-LIBXPOSED="$TOOLCHAIN/libxposed-api.jar"
+LIBXPOSED="${LIBXPOSED:-$TOOLCHAIN/libxposed-api.jar}"
 
 for f in "$JAVA" "$JAVAC" "$AAPT2" "$ZIPALIGN" "$D8_JAR" "$APKSIGNER_JAR" "$ANDROID_JAR" "$LIBXPOSED"; do
-  [ -e "$f" ] || { echo "缺少构建依赖: $f"; exit 1; }
+  [ -e "$f" ] || { echo "Missing build dependency: $f"; exit 1; }
 done
 
 rm -rf "$PROJ/out"
@@ -69,7 +74,7 @@ echo "[1/6] aapt2 compile + link"
 echo "[2/6] javac"
 { find "$PROJ/src/main/java" -name '*.java'; find "$PROJ/out/gen" -name 'R.java'; } > "$PROJ/out/sources.txt"
 "$JAVAC" -nowarn -encoding UTF-8 -source 11 -target 11 \
-  -classpath "$ANDROID_JAR;$LIBXPOSED" \
+  -classpath "$ANDROID_JAR$CLASSPATH_SEP$LIBXPOSED" \
   -d "$PROJ/out/classes" @"$PROJ/out/sources.txt"
 
 echo "[3/6] d8"
@@ -102,8 +107,8 @@ echo "[5/6] zipalign"
 "$ZIPALIGN" -f -p 4 "$PROJ/out/unsigned.apk" "$PROJ/out/aligned.apk"
 
 echo "[6/6] sign"
-# 签名密钥放在 out/ 之外并长期保留：out/ 每次构建都会被清空，
-# 若密钥跟着重建，用户就无法覆盖升级（签名不一致）
+# Keep the signing key outside out/, which is cleared on each build.
+# Reusing the same key allows users to install updates without a signature mismatch.
 KEYDIR="$PROJ/.keystore"
 mkdir -p "$KEYDIR"
 KS="${KEYSTORE:-$KEYDIR/hypervolumefine.jks}"
@@ -115,8 +120,8 @@ fi
 "$JAVA" -jar "$APKSIGNER_JAR" sign \
   --ks "$KS" --ks-pass pass:android --key-pass pass:android \
   --ks-key-alias androiddebugkey --min-sdk-version 28 \
-  --out "$OUT/VolumeFine-$VER_NAME.apk" "$PROJ/out/aligned.apk"
+  --out "$OUT/HyperVolumeFineEN-$VER_NAME.apk" "$PROJ/out/aligned.apk"
 
-"$JAVA" -jar "$APKSIGNER_JAR" verify --min-sdk-version 28 "$OUT/VolumeFine-$VER_NAME.apk"
-ls -l "$OUT/VolumeFine-$VER_NAME.apk"
+"$JAVA" -jar "$APKSIGNER_JAR" verify --min-sdk-version 28 "$OUT/HyperVolumeFineEN-$VER_NAME.apk"
+ls -l "$OUT/HyperVolumeFineEN-$VER_NAME.apk"
 echo "OK"

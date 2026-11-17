@@ -24,19 +24,19 @@ import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
 
 /**
- * 音量细调 —— 让音量键在低音量区间以更细的跨度调整。
+ * Fine volume control: smaller volume-key increments at low levels.
  *
- * 原理（基于 Android 17 / HyperOS 4 的 AudioService 实现）：
- *  1. 每路音频流的档位数由 AudioService.MAX_STREAM_VOLUME[] 决定，小米 13 的音乐流是 29 档
- *     （ro.config.media_vol_steps=29），内部索引空间是 档位 × 10。
- *     AudioService 初始化时会把档位数通过 setMaxVolumeIndexForGroup 同步给音频策略，
- *     所以这个数字就是"真实可用的音量级数"。
- *  2. 一次按键固定走一档，29 档时每档占音量曲线 3.4%，低音量区一格就有 3~8dB 变化。
- *  3. 本模块把档位数提高到 100（可配置），低音量区每次按键走 N 档（默认 1），
- *     高音量区走更多档；并可让音量滑条吸附到固定档位，便于拖动时停准。
+ * Design based on the Android 17 / HyperOS 4 AudioService implementation:
+ *  1. AudioService.MAX_STREAM_VOLUME[] defines each stream maximum: 29 for media on Xiaomi 13
+ *     (ro.config.media_vol_steps=29); internal indices are levels multiplied by 10.
+ *     During initialization, AudioService synchronizes the maximum with audio policy via setMaxVolumeIndexForGroup,
+ *     so this is the number of actual usable volume levels.
+ *  2. At 29 levels, one key press spans 3.4% of the curve, or 3-8dB at low volume.
+ *  3. Raise the maximum to 100 (configurable), with N levels per press at low volume (default 1)
+ *     and larger increments at high volume; optionally snap slider indices to a grid.
  *
- * 配置存储在 Settings.System，由模块 App 通过广播委托 system_server 写入
- * （第三方 App 无权直接写自定义 System 设置，会报 secure settings 错误）。
+ * Configuration is stored in Settings.System; the app broadcasts changes to system_server
+ * (third-party apps cannot directly write custom System keys).
  */
 public final class VolumeFineModule extends XposedModule {
 
@@ -46,11 +46,11 @@ public final class VolumeFineModule extends XposedModule {
     private static final String ACTION_CONFIG = "io.github.usama6878786.hypervolumefine.ACTION_CONFIG";
     private static final String MODULE_PKG = "io.github.usama6878786.hypervolumefine";
 
-    /** 框架中"一档"对应的内部索引数量（VolumeStreamState#readSettings 固定为 setting * 10） */
+    /** Internal indices per level (VolumeStreamState#readSettings uses setting * 10). */
     private static final int STEP_UNIT = 10;
     private static final int DEVICE_OUT_DEFAULT = 0x40000000;
 
-    // ---- 配置项（Settings.System）----
+    // ---- Configuration keys (Settings.System)----
     private static final String KEY_ENABLED = "volume_fine_enabled";
     private static final String KEY_STEPS = "volume_fine_steps";
     private static final String KEY_THRESHOLD = "volume_fine_threshold";
@@ -70,10 +70,10 @@ public final class VolumeFineModule extends XposedModule {
     private static final String DEF_STREAMS = "3";
     private static final int DEF_DEBUG = 0;
 
-    /** 按键路径标记：按键调整时不参与"滑条吸附"，避免两套粒度互相打架 */
+    /** Skip slider snapping on the key path so the two granularities do not interfere. */
     private static final ThreadLocal<Boolean> IN_KEY_PATH = new ThreadLocal<>();
 
-    // ---- 反射句柄 ----
+    // ---- Reflection handles ----
     private Field fStreamType;
     private Field fIndexMap;
     private Field fIndexMax;
@@ -109,7 +109,7 @@ public final class VolumeFineModule extends XposedModule {
         }
     }
 
-    /** 供 PanelNumber 判断是否输出调试日志 */
+    /** Expose the debug flag to PanelNumber. */
     boolean debugEnabled() {
         return config().debug;
     }
@@ -155,11 +155,11 @@ public final class VolumeFineModule extends XposedModule {
                 + ", framework=" + getFrameworkName() + " " + getFrameworkVersion());
     }
 
-    // ------------------------------------------------------------------ 配置通道
+    // ------------------------------------------------------------------ Configuration channel
 
     /**
-     * 模块 App 无法直接写自定义的 System 设置（会被系统判定为 secure settings 拒绝），
-     * 所以让它发广播，由 system_server 代为落盘，读取路径仍然是便宜的本地设置读取。
+     * The module app cannot directly write custom System keys (rejected as secure settings).
+     * Broadcast changes for system_server to persist; reads still use Settings.System.
      */
     private synchronized void ensureConfigReceiver() {
         if (mReceiverRegistered) {
@@ -173,7 +173,7 @@ public final class VolumeFineModule extends XposedModule {
         }
     }
 
-    /** AMS 还没起来时 registerReceiver 会 NPE，交给后续重试 */
+    /** Retry later if registerReceiver fails before ActivityManagerService is ready. */
     private void startReceiverRetry() {
         Thread t = new Thread(() -> {
             for (int i = 0; i < 60 && !mReceiverRegistered; i++) {
@@ -227,7 +227,7 @@ public final class VolumeFineModule extends XposedModule {
             return true;
         }
         try {
-            // API 34+: BroadcastReceiver#getSentFromUid()，用反射避免不同版本签名差异
+            // API 34+: reflect BroadcastReceiver#getSentFromUid() for version compatibility.
             Method m = BroadcastReceiver.class.getMethod("getSentFromUid");
             Object uid = m.invoke(receiver);
             if (uid instanceof Integer) {
@@ -235,7 +235,7 @@ public final class VolumeFineModule extends XposedModule {
                 if (config().debug) {
                     log(3, TAG, "config broadcast from uid=" + u + " (module=" + mModuleUid + ")");
                 }
-                // 有些版本拿不到发送者 uid（<=0），此时放行
+                // Some versions cannot report the sender UID (<=0); allow those broadcasts.
                 if (u > 0) {
                     return u == mModuleUid;
                 }
@@ -245,7 +245,7 @@ public final class VolumeFineModule extends XposedModule {
         return true;
     }
 
-    /** 把 App 发来的配置写进 Settings.System（system_server 有权限） */
+    /** Persist app configuration in Settings.System using system_server privileges. */
     private void persist(Intent intent) {
         ContentResolver cr = resolver();
         if (cr == null) {
@@ -263,7 +263,7 @@ public final class VolumeFineModule extends XposedModule {
             sb.append(key).append('=').append(v).append(' ');
         }
         if (mConfig != null) {
-            mConfig = null;   // 立即失效，下一次读取即生效
+            mConfig = null;   // Invalidate immediately so the next read reloads settings.
         }
         log(4, TAG, "config saved: " + sb);
     }
@@ -330,7 +330,7 @@ public final class VolumeFineModule extends XposedModule {
         hook(adjustIndex).setPriority(XposedInterface.PRIORITY_HIGHEST).intercept(this::handleAdjustIndex);
     }
 
-    /** 滑条等"绝对设置"路径：把索引吸附到网格，拖动时更容易停准；同时刷新音量数值浮层 */
+    /** Snap absolute slider indices to a grid for more precise dragging. */
     private void hookAbsoluteSet(ClassLoader cl) throws Throwable {
         Class<?> vss = Class.forName("com.android.server.audio.AudioService$VolumeStreamState", false, cl);
         Method setIndex = vss.getDeclaredMethod("setIndex", int.class, int.class, String.class, boolean.class);
@@ -372,11 +372,11 @@ public final class VolumeFineModule extends XposedModule {
     }
 
     /**
-     * 音量最终送给音频策略层时做一次非线性映射：
-     * 低音频"数值"对应的曲线位置更小（每步的响度变化更小），
-     * 数值越大越接近线性（恢复正常跨度）。
+     * Observe updateIndexFactors for diagnostic logging.
+     * The hook below only logs the stream type and maximum index;
+     * it does not modify the audio-policy curve.
      *
-     * UI 上显示的数字不变、每次按键仍然 +1，改变的只是送进曲线的位置。
+     * Fine/coarse key increments are handled separately in handleAdjustIndex.
      */
     private void hookIndexFactors(ClassLoader cl) throws Throwable {
         Class<?> vss = Class.forName("com.android.server.audio.AudioService$VolumeStreamState", false, cl);
@@ -481,7 +481,7 @@ public final class VolumeFineModule extends XposedModule {
                 return chain.proceed();
             }
 
-            // 低音量区按 fine 档，超过 threshold 按 coarse 档（两个值都由 App 设置）
+            // Use fine increments below threshold, otherwise coarse (both configured by the app).
             int lowLimit = cfg.threshold * STEP_UNIT;
             boolean fine = step > 0 ? cur < lowLimit : cur <= lowLimit;
             int units = fine ? cfg.fine : cfg.coarse;
@@ -579,7 +579,7 @@ public final class VolumeFineModule extends XposedModule {
         if (mConfig != null && now - mConfigAt < 800L) {
             return mConfig;
         }
-        // 一次 query 把 volume_fine_* 全读回来（原来 9 个键 = 9 次跨进程调用）
+        // Read volume_fine_* in one query instead of nine separate cross-process calls.
         Map<String, String> kv = snapshotSettings();
         Config c = new Config();
         c.enabled = intOf(kv, KEY_ENABLED, DEF_ENABLED) != 0;
@@ -596,7 +596,7 @@ public final class VolumeFineModule extends XposedModule {
         return c;
     }
 
-    /** 一次性读取所有 volume_fine_* 配置，读失败则退回逐键读取 */
+    /** Read all volume_fine_* settings together; fall back to individual keys on failure. */
     private Map<String, String> snapshotSettings() {
         ContentResolver cr = resolver();
         if (cr != null) {
@@ -614,8 +614,8 @@ public final class VolumeFineModule extends XposedModule {
                     if (!map.isEmpty()) {
                         return map;
                     }
-                    // 查询成功但没读到东西（可能是新装、也可能 provider 不支持 LIKE）：
-                    // 退回逐键读取，避免把用户配置当成默认值
+                    // An empty result may mean a fresh install or a provider without LIKE support.
+                    // Fall back to individual reads rather than discarding user configuration.
                     return readKeysOneByOne(cr);
                 }
             } catch (Throwable t) {
@@ -663,7 +663,7 @@ public final class VolumeFineModule extends XposedModule {
         }
     }
 
-    /** 解析流列表；同样的字符串只解析一次，避免每次刷新都 new HashSet */
+    /** Parse each distinct stream list once to avoid allocating a HashSet on every refresh. */
     private Set<Integer> parseStreams(String raw) {
         if (raw != null && raw.equals(mStreamsRaw) && mStreamsCache != null) {
             return mStreamsCache;

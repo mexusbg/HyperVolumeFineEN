@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.usama6878786.hypervolumefine"
-    android:versionCode="21"
-    android:versionName="2.10">
+    android:versionCode="22"
+    android:versionName="2.10-en.1">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="36" />
 
@@ -11,13 +11,15 @@
     <application
         android:allowBackup="false"
         android:hasCode="true"
-        android:label="Hyper音量细调"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
         android:theme="@style/VfTheme">
 
         <activity
             android:name=".SettingsActivity"
             android:exported="true"
-            android:label="Hyper音量细调">
+            android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

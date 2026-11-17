@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 108 108">
+  <title>Hyper Volume Fine app icon</title>
+  <desc>A speaker with a precise mint volume slider on a dark purple background.</desc>
+  <rect width="108" height="108" rx="24" fill="#211638"/>
+  <path fill="#FFF7FF" d="M30 47H39L51 37V71L39 61H30Z"/>
+  <path fill="none" stroke="#D0BCFF" stroke-width="4" stroke-linecap="round" d="M58 46Q65 54 58 62"/>
+  <path stroke="#77628E" stroke-width="4" stroke-linecap="round" d="M73 37V71"/>
+  <path stroke="#78E5CB" stroke-width="4" stroke-linecap="round" d="M73 60V71"/>
+  <circle cx="73" cy="60" r="6" fill="#78E5CB"/>
+</svg>
