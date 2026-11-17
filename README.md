@@ -54,9 +54,11 @@ The upstream procedure is to turn off the app's enable switch, reboot with the m
 
 ## Compatibility
 
-Upstream reports development and hardware testing on **Xiaomi 13 (`fuxi`) / HyperOS 4.0 / Android 17**. Those results are upstream reports, not new device validation for this fork.
+**Tested by the fork maintainer on Xiaomi 17 Ultra, EEA variant, running HyperOS 4 / Android 17.**
 
-The implementation depends on `AudioService`, `ro.config.media_vol_steps`, and `VolumeStreamState`. Upstream expects the general approach to work on many Android 13+ devices, but only reports testing the device above. The manifest minimum is Android 9/API 28; that does not establish hook compatibility on every supported install version.
+Upstream also reports development and hardware testing on **Xiaomi 13 (`fuxi`) / HyperOS 4.0 / Android 17**. The Xiaomi 13 results are upstream reports.
+
+The implementation depends on `AudioService`, `ro.config.media_vol_steps`, and `VolumeStreamState`. Upstream expects the general approach to work on many Android 13+ devices. The test reports above do not establish compatibility with other devices or ROM variants. The manifest minimum is Android 9/API 28; that does not establish hook compatibility on every supported install version.
 
 The volume-number positioning relies on MIUI/HyperOS view classes such as `MiuiVolumeSeekBar`. Unsupported panel implementations may not show the number. Audio routing and saved volume levels are device-specific, so a newly connected headset or Bluetooth device can have a different volume from the speaker.
 

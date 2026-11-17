@@ -25,8 +25,12 @@ The generated APK is a locally development-signed build in `dist/HyperVolumeFine
 
 The older Chinese settings/toast screenshot was replaced with the English screenshots. The upstream panel screenshot is retained because its only readable app content is the numeric level.
 
+## Maintainer-reported hardware testing
+
+The fork maintainer reports testing this English edition on **Xiaomi 17 Ultra, EEA variant, running HyperOS 4 / Android 17**. This device result was supplied by the maintainer; the automated checks above were performed separately on the emulator.
+
 ## Limits
 
 The emulator does not have LSPosed or Xiaomi/HyperOS SystemUI. Its stock maximum is 15, as shown in the settings screenshots. This validates installation, resources, and UI rendering, **not** system-server hooks, audio-policy behavior, volume persistence, sender authentication, panel-number alignment on MIUI, or actual loudness.
 
-No rooted Xiaomi device was modified, no phone reboot was performed, and no new hardware compatibility or performance measurements are claimed. The inherited runtime issues in [OPTIMIZATIONS.md](OPTIMIZATIONS.md) remain open recommendations.
+The automated validation did not modify or reboot a rooted Xiaomi device. No quantitative hardware performance or loudness measurements are claimed for the maintainer-reported test. The inherited runtime issues in [OPTIMIZATIONS.md](OPTIMIZATIONS.md) remain open recommendations.
